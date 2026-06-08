@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Selector de Modelos - TensorFlow.js</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
+
+    <style>
+      body {
+        font-family: sans-serif;
+        text-align: center;
+        background: #222;
+        color: #fff;
+      }
+      #canvas-container {
+        position: relative;
+        margin: 20px auto;
+        width: 640px;
+        height: 480px;
+      }
+      video,
+      canvas {
+        position: absolute;
+        left: 0;
+        top: 0;
+        transform: scaleX(-1);
+      }
+      select {
+        padding: 10px;
+        font-size: 16px;
+        border-radius: 5px;
+        margin-top: 10px;
+        cursor: pointer;
+      }
+      .controles {
+        margin-bottom: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Detección de Pose en Tiempo Real</h1>
+
+    <div class="controles">
+      <label for="modelSelect">Elegir Modelo: </label>
+      <select id="modelSelect" onchange="cambiarModelo()">
+        <option value="movenet">MoveNet (Rápido - 17 puntos)</option>
+        <option value="blazepose">BlazePose (Ultra Preciso - 33 puntos)</option>
+        <option value="posenet">PoseNet (Clásico/Multi-persona)</option>
+      </select>
+    </div>
+
+    <p id="status">Cargando modelo inicial... Por favor espera.</p>
+
+    <div id="canvas-container">
+      <video
+        id="video"
+        width="640"
+        height="480"
+        autoplay
+        playsinline
+        muted
+      ></video>
+      <canvas id="canvas" width="640" height="480"></canvas>
+    </div>
+
+    <script>
+      let detector;
+      let video;
+      let canvas;
+      let ctx;
+      let modeloActual = "movenet";
+
+      async function setupCamera() {
+        video = document.getElementById("video");
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+        video.srcObject = stream;
+        return new Promise((resolve) => {
+          video.onloadedmetadata = () => resolve(video);
+        });
+      }
+
+      async function cargarModelo(nombreModelo) {
+        document.getElementById("status").innerText =
+          `Cargando ${nombreModelo}...`;
+        if (detector) {
+          detector.dispose(); // Liberamos la memoria del modelo anterior
+        }
+
+        let model;
+        let detectorConfig = {};
+
+        if (nombreModelo === "movenet") {
+          model = poseDetection.SupportedModels.MoveNet;
+          detectorConfig = {
+            modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+          };
+        } else if (nombreModelo === "blazepose") {
+          model = poseDetection.SupportedModels.BlazePose;
+          // Usamos la versión Mediapipe que corre directo en el navegador
+          detectorConfig = {
+            runtime: "mediapipe",
+            solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/pose",
+          };
+        } else if (nombreModelo === "posenet") {
+          model = poseDetection.SupportedModels.PoseNet;
+          detectorConfig = {
+            architecture: "MobileNetV1",
+            outputStride: 16,
+            inputResolution: { width: 257, height: 257 },
+            multiplier: 0.75,
+          };
+        }
+
+        detector = await poseDetection.createDetector(model, detectorConfig);
+        document.getElementById("status").innerText =
+          `Modelo ${nombreModelo.toUpperCase()} activo.`;
+      }
+
+      async function cambiarModelo() {
+        const selector = document.getElementById("modelSelect");
+        modeloActual = selector.value;
+        await cargarModelo(modeloActual);
+      }
+
+      function obtenerConexiones(nombreModelo, cantidadPuntos) {
+        // Conexiones estándar para MoveNet y PoseNet (17 puntos)
+        if (cantidadPuntos === 17) {
+          return [
+            { p1: 5, p2: 6 },
+            { p1: 5, p2: 11 },
+            { p1: 6, p2: 12 },
+            { p1: 11, p2: 12 },
+            { p1: 5, p2: 7 },
+            { p1: 7, p2: 9 },
+            { p1: 6, p2: 8 },
+            { p1: 8, p2: 10 },
+            { p1: 11, p2: 13 },
+            { p1: 13, p2: 15 },
+            { p1: 12, p2: 14 },
+            { p1: 14, p2: 16 },
+          ];
+        }
+        // Conexiones extendidas para BlazePose (33 puntos)
+        return [
+          { p1: 11, p2: 12 },
+          { p1: 11, p2: 13 },
+          { p1: 13, p2: 15 },
+          { p1: 12, p2: 14 },
+          { p1: 14, p2: 16 },
+          { p1: 11, p2: 23 },
+          { p1: 12, p2: 24 },
+          { p1: 23, p2: 24 },
+          { p1: 23, p2: 25 },
+          { p1: 25, p2: 27 },
+          { p1: 24, p2: 26 },
+          { p1: 26, p2: 28 },
+          { p1: 15, p2: 17 },
+          { p1: 15, p2: 19 },
+          { p1: 15, p2: 21 },
+          { p1: 17, p2: 19 },
+          { p1: 16, p2: 18 },
+          { p1: 16, p2: 20 },
+          { p1: 16, p2: 22 },
+          { p1: 18, p2: 20 },
+          { p1: 27, p2: 29 },
+          { p1: 27, p2: 31 },
+          { p1: 29, p2: 31 },
+          { p1: 28, p2: 30 },
+          { p1: 28, p2: 32 },
+          { p1: 30, p2: 32 },
+        ];
+      }
+
+      async function detectarPose() {
+        if (detector) {
+          try {
+            const poses = await detector.estimatePoses(video);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (poses.length > 0) {
+              // PoseNet puede devolver múltiples personas, recorremos todas
+              poses.forEach((pose) => {
+                const keypoints = pose.keypoints;
+                const conexiones = obtenerConexiones(
+                  modeloActual,
+                  keypoints.length,
+                );
+
+                // Dibujar líneas
+                conexiones.forEach((conexion) => {
+                  const punto1 = keypoints[conexion.p1];
+                  const punto2 = keypoints[conexion.p2];
+                  if (
+                    punto1 &&
+                    punto2 &&
+                    punto1.score > 0.3 &&
+                    punto2.score > 0.3
+                  ) {
+                    ctx.beginPath();
+                    ctx.moveTo(punto1.x, punto1.y);
+                    ctx.lineTo(punto2.x, punto2.y);
+                    ctx.strokeStyle =
+                      modeloActual === "blazepose" ? "#ff00ff" : "#00ffff"; // Fucsia para BlazePose
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                  }
+                });
+
+                // Dibujar puntos
+                keypoints.forEach((keypoint, indice) => {
+                  // Ocultamos puntos de la cara en MoveNet/PoseNet para limpiar la vista
+                  if (keypoints.length === 17 && indice < 5) return;
+
+                  if (keypoint.score > 0.3) {
+                    ctx.beginPath();
+                    ctx.arc(keypoint.x, keypoint.y, 4, 0, 2 * Math.PI);
+                    ctx.fillStyle = "#00ff00";
+                    ctx.fill();
+                  }
+                });
+              });
+            }
+          } catch (error) {
+            console.error("Error en la detección:", error);
+          }
+        }
+        requestAnimationFrame(detectarPose);
+      }
+
+      async function main() {
+        await setupCamera();
+        video.play();
+        canvas = document.getElementById("canvas");
+        ctx = canvas.getContext("2d");
+        await cargarModelo(modeloActual);
+        detectarPose();
+      }
+
+      main().catch((err) => {
+        document.getElementById("status").innerText = "Error: " + err.message;
+        console.error(err);
+      });
+    </script>
+  </body>
+</html>
